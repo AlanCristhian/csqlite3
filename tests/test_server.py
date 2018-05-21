@@ -6,7 +6,7 @@ from csqlite3 import server
 
 
 LOG_PATH = utils.BASE.parent/"logs"/"server.log"
-KEY = "127.0.0.1", 8888, ":memory:"
+KEY = "127.0.0.1", 8888, "12456"
 
 
 @unittest.skipIf(__name__ == "__main__",
@@ -23,7 +23,7 @@ class ServerLoggingSuite(unittest.TestCase):
         self.assertEqual(log.port, 8888)
         self.assertEqual(log.status, "csqlite3.server has been started.")
         self.assertEqual(log.pid, "")
-        self.assertEqual(log.kwargs, {})
+        self.assertEqual(log.kwargs, "{}")
 
     def test_close_server(self):
         with open(LOG_PATH, "r") as log_file:
@@ -35,21 +35,13 @@ class ServerLoggingSuite(unittest.TestCase):
         self.assertEqual(log.port, 8888)
         self.assertEqual(log.status, "csqlite3.server has been closed.")
         self.assertEqual(log.pid, "")
-        self.assertEqual(log.kwargs, {})
+        self.assertEqual(log.kwargs, "{}")
 
-    def test_start_and_close_client_app(self):
+    def test_enable_callback_traceback(self):
         with open(LOG_PATH, "r") as log_file:
             lines = log_file.readlines()
-        logs = [utils.as_log(line) for line in lines]
-        opened_clients = [log for log in logs
-                          if log.status == "Client app was opened."]
-        closed_clients = [log for log in logs
-                          if log.status == "Client app was closed."]
-        self.assertGreater(len(opened_clients), 0)
-        self.assertGreater(len(closed_clients), 0)
-        for x, y in zip(opened_clients, closed_clients):
-            with self.subTest(x=x.pid, y=y.pid):
-                self.assertEqual(x.pid, y.pid)
+        ans = [utils.as_log(line) for line in lines]
+        ans = [log for log in ans if log.obj == "csqlite3"]
 
 
 class DatabaseSuite(unittest.TestCase):
@@ -85,6 +77,27 @@ class ConnectionDispatcher(unittest.TestCase):
         self.database[KEY]["connection"]["open"](database=":memory:")
         self.assertIsInstance(self.database[KEY]["connection"].connection,
                               sqlite3.Connection)
+
+
+class ModuleDispatcher(unittest.TestCase):
+    def test_dispatcher_instance(self):
+        database = server.Database()
+        database[KEY]["csqlite3"]
+        self.assertIsInstance(database[KEY]["csqlite3"],
+                              server.ModuleDispatcher)
+
+    def test_dispatcher_method(self):
+        database = server.Database()
+        database[KEY]["csqlite3"]
+        function = database[KEY]["csqlite3"]["register_converter"]
+        self.assertEqual(function.__name__, "register_converter")
+
+    def test_enable_callback_tracebacks(self):
+        database = server.Database()
+        database[KEY]["csqlite3"]
+        function = database[KEY]["csqlite3"]["enable_callback_tracebacks"]
+        function(True)
+
 
 
 if __name__ == '__main__':

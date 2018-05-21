@@ -25,7 +25,7 @@ logger = logging.getLogger("Server")
 
 
 Log = collections.namedtuple("Log", ["asctime", "levelname", "host", "port",
-                             "status", "pid", "kwargs"])
+                             "status", "pid", "obj", "method", "kwargs"])
 
 
 def as_log(line):
@@ -90,7 +90,7 @@ class ServerError:
         self.error = error
 
     def __repr__(self):
-        return "csqlite.ServerError: " + repr(self.error)
+        return f"csqlite.ServerError: {self.error}"
 
 
 class ServerWarning:

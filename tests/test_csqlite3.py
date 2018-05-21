@@ -24,6 +24,13 @@ class ConstantSuite(unittest.TestCase):
     def test_PARSE_COLNAMES(self):
         self.assertEqual(csqlite3.PARSE_COLNAMES, sqlite3.PARSE_COLNAMES)
 
+    def test_complete_statement(self):
+        self.assertEqual(csqlite3.complete_statement,
+                         sqlite3.complete_statement)
+
+    def test_enable_callback_tracebacks(self):
+        csqlite3.enable_callback_tracebacks(True)
+        csqlite3.enable_callback_tracebacks(False)
 
 if __name__ == '__main__':
     unittest.main()

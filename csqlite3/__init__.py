@@ -1,10 +1,13 @@
 import sqlite3
 
-# from .client import connect
+from .client import (connect, Connection, register_adapter, register_converter,
+                     Cursor, enable_callback_tracebacks)
 
 
 __all__ = ["version", "version_info", "sqlite_version", "sqlite_version_info",
-           "PARSE_DECLTYPES", "PARSE_COLNAMES", "connect"]
+           "PARSE_DECLTYPES", "PARSE_COLNAMES", "connect", "Connection",
+           "register_adapter", "register_converter", "Cursor",
+           "complete_statement", "enable_callback_tracebacks"]
 
 
 # Constants
@@ -15,3 +18,4 @@ sqlite_version = sqlite3.sqlite_version
 sqlite_version_info = sqlite3.sqlite_version_info
 PARSE_DECLTYPES = sqlite3.PARSE_DECLTYPES
 PARSE_COLNAMES = sqlite3.PARSE_COLNAMES
+complete_statement = sqlite3.complete_statement

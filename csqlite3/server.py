@@ -1,11 +1,20 @@
 import asyncio
 import collections
+import sqlite3
 
 from . import utils
 
 
 logger = utils.SafeLogger("Server")
 active_client_apps = {}
+
+
+class ModuleDispatcher:
+    def __init__(self, module):
+        self.module = module
+
+    def __getitem__(self, item):
+        return getattr(self.module, item)
 
 
 class ConnectionDispatcher:
@@ -19,7 +28,8 @@ class ConnectionDispatcher:
         else:
             self.sqlite3 = active_client_apps[pid] = utils.require("sqlite3")
             logger.debug("Client app was open.", extra={"host": host,
-                         "port": port, "pid": pid, "kwargs": {}})
+                         "port": port, "pid": pid, "obj": "client_app",
+                         "method": "open", "kwargs": {}})
 
     def connector(self, **kwargs):
         self.connection = self.sqlite3.connect(**kwargs)
@@ -32,13 +42,15 @@ class ConnectionDispatcher:
 
 class CursorDispatcher:
     def __init__(self, connection):
-        self.connection = connection
+        self.connection = connection.connection
+        self.cursor = None
 
-    def open(self, **kwargs):
+    def connector(self, **kwargs):
         self.cursor = self.connection.cursor()
-        return self
 
     def __getitem__(self, item):
+        if item == "open":
+            return self.connector
         return getattr(self.cursor, item)
 
 
@@ -53,6 +65,10 @@ class ObjectDispatcher(collections.defaultdict):
         elif key == "cursor":
             self["cursor"] = CursorDispatcher(self["connection"])
             return self["cursor"]
+        elif key == "csqlite3":
+            self["csqlite3"] = ModuleDispatcher(
+                active_client_apps[self.key[-1]])
+            return self["csqlite3"]
         else:
             raise KeyError
 
@@ -72,10 +88,11 @@ class Database(collections.defaultdict):
                         status = await self.handle_request(
                             writer, client, host, port, *request)
                     except Exception as error:
-                        pid, *_, kwargs = request
+                        pid, obj, method, kwargs = request
                         status = utils.ServerError(error)
                         logger.error(status, extra={"host": host, "port": port,
-                                     "pid": pid, "kwargs": kwargs})
+                                     "pid": pid, "obj": obj, "method": method,
+                                     "kwargs": kwargs})
                         await writer(client, status)
                         raise
 
@@ -84,25 +101,29 @@ class Database(collections.defaultdict):
 
     async def handle_request(self, writer, client, host, port, pid, obj,
                              method, kwargs):
-        status = self[host, port, pid][obj][method](**kwargs)
-        logger.debug(status, extra={"host": host, "port": port, "pid": pid,
-                     "kwargs": kwargs})
-
-        await writer(client, status)
-
-        if (obj, method) == ("connection", "close"):
-            return StopIteration
         if (obj, method) == ("client_app", "close"):
             del active_client_apps[pid]
             logger.debug("Client app was closed.", extra={"host": host,
-                         "port": port, "pid": pid, "kwargs": kwargs})
+                         "port": port, "pid": pid, "obj": obj,
+                         "method": method, "kwargs": kwargs})
+            return StopIteration
+        if isinstance(kwargs, dict):
+            status = self[host, port, pid][obj][method](**kwargs)
+        else:
+            status = self[host, port, pid][obj][method](*kwargs)
+        if isinstance(status, sqlite3.Cursor):
+            status = None
+        logger.debug(status, extra={"host": host, "port": port, "pid": pid,
+                     "obj": obj, "method": method, "kwargs": kwargs})
+        await writer(client, status)
+        if (obj, method) == ("connection", "close"):
             return StopIteration
 
     async def warn(self, writer, client, host, port):
         warning = RuntimeWarning("Unexpected close connection")
         status = utils.ServerWarning(warning)
-        logger.warning(status, extra={"host": host, "port": port,
-                       "pid": "unknow", "kwargs": {}})
+        logger.warning(status, extra={"host": host, "port": port, "obj": "",
+                       "method": "", "pid": "", "kwargs": {}})
         await writer(client, status)
         return StopIteration
 
@@ -112,7 +133,8 @@ def main():
     handler = Database().handler
     database_server = utils.new_server(utils.HOST, utils.PORT, handler, loop)
     logging_server = logger.new_server()
-    _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "", "kwargs": {}}
+    _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "",
+              "obj": "", "method": "", "kwargs": {}}
     logger.info("csqlite3.server has been started.", extra=_extra)
     try:
         tasks = asyncio.gather(database_server, logging_server)

@@ -16,7 +16,7 @@ class ServerLoggingSuite(unittest.TestCase):
     def test_start_server(self):
         with open(LOG_PATH, "r") as log_file:
             lines = log_file.readlines()
-        log = eval("utils.Log(%s)" % lines[0])
+        log = utils.as_log(lines[0])
         self.assertTrue(hasattr(log, "asctime"))
         self.assertEqual(log.levelname, "INFO")
         self.assertEqual(log.host, "127.0.0.4")
@@ -28,7 +28,7 @@ class ServerLoggingSuite(unittest.TestCase):
     def test_close_server(self):
         with open(LOG_PATH, "r") as log_file:
             lines = log_file.readlines()
-        log = eval("utils.Log(%s)" % lines[-1])
+        log = utils.as_log(lines[-1])
         self.assertTrue(hasattr(log, "asctime"))
         self.assertEqual(log.levelname, "INFO")
         self.assertEqual(log.host, "127.0.0.4")
@@ -36,6 +36,20 @@ class ServerLoggingSuite(unittest.TestCase):
         self.assertEqual(log.status, "csqlite3.server has been closed.")
         self.assertEqual(log.pid, "")
         self.assertEqual(log.kwargs, {})
+
+    def test_start_and_close_client_app(self):
+        with open(LOG_PATH, "r") as log_file:
+            lines = log_file.readlines()
+        logs = [utils.as_log(line) for line in lines]
+        opened_clients = [log for log in logs
+                          if log.status == "Client app was opened."]
+        closed_clients = [log for log in logs
+                          if log.status == "Client app was closed."]
+        self.assertGreater(len(opened_clients), 0)
+        self.assertGreater(len(closed_clients), 0)
+        for x, y in zip(opened_clients, closed_clients):
+            with self.subTest(x=x.pid, y=y.pid):
+                self.assertEqual(x.pid, y.pid)
 
 
 class DatabaseSuite(unittest.TestCase):

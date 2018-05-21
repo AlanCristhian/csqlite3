@@ -13,25 +13,12 @@ _PID = os.getpid()
 class _ConnectionSocket(utils.PickleSocket):
     def request(self, *message):
         self.write(message)
-        try:
-            response = self.read()
-        except socket.timeout:
-            raise
-        if response is None:
-            return
-        elif response == "":
-            warnings.warn("unexpected void response", RuntimeWarning)
-            host, port = self.getsockname()
-            _logger.warn("Unexpected void response", extra={"host": host,
-                         "port": port, "pid": message[0], "kwargs": {}})
-        elif isinstance(response, Warning):
-            warnings.warn(response.args[1], response.__class__)
-        elif isinstance(response, Exception):
-            raise response
-        elif isinstance(response, tuple):
-            return response
-        else:
-            raise ValueError("Wrong response", response)
+        response = self.read()
+        if isinstance(response, utils.ServerError):
+            raise response.error
+        elif isinstance(response, utils.ServerWarning):
+            warnings.warn(response.warning.args[1], response.warning.__class__)
+        return response
 
 
 class Connection:

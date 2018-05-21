@@ -115,7 +115,8 @@ class ServerMethods:
 class Runner(ServerMethods):
     """Set up and run test, servers, and linters."""
     def __init__(self):
-        self.catch_linter_errors()
+        if self.catch_linter_errors():
+            return
         self.start_server()
         modules = [
             test_utils,
@@ -141,10 +142,11 @@ class Runner(ServerMethods):
         or catch_parallel_linter_errors("bandit", ["-r", "csqlite3"]) \
         or catch_sequential_linter_errors("pycodestyle", ["csqlite3/"]) \
         or catch_sequential_linter_errors("pydocstyle", pycodestyle_args):
-            return
+            return True
 
         end = time.perf_counter() - start
         print("\n%s\nRan 5 linters in %.3fs\n\nOK" % ("-"*70, end))
+        return False
 
     def load_and_run_tests(self, modules):
         loader = unittest.TestLoader()

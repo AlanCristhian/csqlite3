@@ -1,3 +1,5 @@
+import argparse
+import importlib
 import multiprocessing
 import pathlib
 import platform
@@ -114,19 +116,21 @@ class ServerMethods:
 
 class Runner(ServerMethods):
     """Set up and run test, servers, and linters."""
-    def __init__(self):
-        if self.catch_linter_errors():
-            return
+    def __init__(self, argument):
+        self.argument = argument
+
+        if self.argument.linters:
+            if self.catch_linter_errors():
+                return
+
         self.start_server()
-        modules = [
-            test_utils,
-            test_client,
-            test_csqlite3,
-        ]
+        modules = self.load_tests()
         self.load_and_run_tests(modules)
-        # On windows I need to close te server to read the log file.
+        # NOTE 1: On windows I need to close te server to read the log file.
         self.close_server()
-        self.load_and_run_tests([test_server])
+        if not self.argument.module:
+            self.load_and_run_tests(
+                [importlib.import_module("tests.test_server")])
 
     def catch_linter_errors(self):
         """Returns True if some linter found an error. False in otherwise.
@@ -136,21 +140,34 @@ class Runner(ServerMethods):
         pycodestyle_args = ["--exclude", "logs,runtests.py,"]
         start = time.perf_counter()
 
-        # or catch_sequential_linter_errors("mccabe", ["--min", "6"]) \
+        # or catch_sequential_linter_errors("pycodestyle", ["csqlite3/"]) \
         if catch_parallel_linter_errors("pyflakes", ["csqlite3"]) \
+        or catch_sequential_linter_errors("mccabe", ["--min", "6"]) \
         or catch_parallel_linter_errors("pylint", pylint_args) \
         or catch_parallel_linter_errors("bandit", ["-r", "csqlite3"]) \
-        or catch_sequential_linter_errors("pycodestyle", ["csqlite3/"]) \
         or catch_sequential_linter_errors("pydocstyle", pycodestyle_args):
             return True
 
         end = time.perf_counter() - start
-        print("\n%s\nRan 5 linters in %.3fs\n\nOK" % ("-"*70, end))
+        print("\n%s\nRan 6 linters in %.3fs\n\nOK" % ("-"*70, end))
         return False
+
+    def load_tests(self):
+        if self.argument.module:
+            ans = [self.argument.module]
+        else:
+            ans = pathlib.Path().glob("tests/*.py")
+            ans = (p.parent/p.stem for p in ans)
+            ans = (str(p) for p in ans)
+            ans = (s.replace("/", ".") for s in ans)
+            ans = (s.replace("\\", ".") for s in ans)
+            ans = (m for m in ans if "__" not in m)
+            ans = (m for m in ans if "test_server" not in m)  # See NOTE 1
+        return (importlib.import_module(m) for m in ans)
 
     def load_and_run_tests(self, modules):
         loader = unittest.TestLoader()
-        runner = unittest.TextTestRunner()
+        runner = unittest.TextTestRunner(failfast=self.argument.failfast)
         suite = unittest.TestSuite()
         for module in modules:
             suite.addTest(loader.loadTestsFromModule(module))
@@ -158,4 +175,12 @@ class Runner(ServerMethods):
 
 
 if __name__ == "__main__":
-    Runner()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-l", "--linters", action="store_true",
+                        help="Run linters")
+    parser.add_argument("-m", "--module",
+                        help="Run specific test module")
+    parser.add_argument("-f", "--failfast", action="store_true",
+                        help="Stop the test run on the first error or failure")
+    argument = parser.parse_args()
+    Runner(argument)

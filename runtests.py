@@ -30,11 +30,8 @@ def print_dot():
 
 def run_linter_once(linter, args):
     """Run a linter program from the command line."""
-    process = subprocess.Popen(
-        args,
-        start_new_session=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE)
+    process = subprocess.Popen(args, start_new_session=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, _ = process.communicate()
     if output:
         print()
@@ -82,7 +79,11 @@ class ServerMethods:
     def start_server(self):
         """Run the aiohttp server."""
         args = [sys.executable, "-m", "csqlite3.server"]
-        self.process = subprocess.Popen(args, start_new_session=True)
+        if self.argument.output:
+            self.process = subprocess.Popen(args, start_new_session=True)
+        else:
+            self.process = subprocess.Popen(args, start_new_session=True,
+                                            stdout=subprocess.DEVNULL)
         start = time.perf_counter()
         with socket.socket() as test_socket:
             while time.perf_counter() - start < TIMEOUT:
@@ -123,11 +124,16 @@ class Runner(ServerMethods):
             if self.catch_linter_errors():
                 return
 
-        self.start_server()
+        if self.argument.server:
+            self.start_server()
+
         modules = self.load_tests()
         self.load_and_run_tests(modules)
+
         # NOTE 1: On windows I need to close te server to read the log file.
-        self.close_server()
+        if self.argument.server:
+            self.close_server()
+
         if not self.argument.module:
             self.load_and_run_tests(
                 [importlib.import_module("tests.test_server")])
@@ -140,11 +146,11 @@ class Runner(ServerMethods):
         pycodestyle_args = ["--exclude", "logs,runtests.py,"]
         start = time.perf_counter()
 
-        # or catch_sequential_linter_errors("pycodestyle", ["csqlite3/"]) \
         if catch_parallel_linter_errors("pyflakes", ["csqlite3"]) \
-        or catch_sequential_linter_errors("mccabe", ["--min", "6"]) \
+        or catch_sequential_linter_errors("pycodestyle", ["csqlite3/"]) \
         or catch_parallel_linter_errors("pylint", pylint_args) \
         or catch_parallel_linter_errors("bandit", ["-r", "csqlite3"]) \
+        or catch_sequential_linter_errors("mccabe", ["--min", "7"]) \
         or catch_sequential_linter_errors("pydocstyle", pycodestyle_args):
             return True
 
@@ -182,5 +188,9 @@ if __name__ == "__main__":
                         help="Run specific test module")
     parser.add_argument("-f", "--failfast", action="store_true",
                         help="Stop the test run on the first error or failure")
+    parser.add_argument("-s", "--server", action="store_true",
+                        help="Start the csqlite3 server")
+    parser.add_argument("-o", "--output", action="store_true",
+                        help="Show server output")
     argument = parser.parse_args()
     Runner(argument)

@@ -10,6 +10,7 @@ import socket
 import socketserver
 import struct
 import sys
+import queue
 
 
 BASE = pathlib.Path(__file__).parent
@@ -102,38 +103,39 @@ class ServerWarning:
         return "csqlite.ServerWarning: " + repr(self.error)
 
 
-class SafeLogger(collections.deque):
+class SafeLogger(queue.Queue):
     def __init__(self, name):
         super().__init__()
         self.log = logging.getLogger(name).log
+        self.loop = asyncio.get_event_loop()
 
     def info_now(self, msg, *args, **kwargs):
         self.log(logging.INFO, msg, *args, **kwargs)
 
     def critical(self, msg, *args, **kwargs):
-        self.append((logging.CRITICAL, msg, args, kwargs))
+        self.put_nowait((logging.CRITICAL, msg, args, kwargs))
 
     def error(self, msg, *args, **kwargs):
-        self.append((logging.ERROR, msg, args, kwargs))
+        self.put_nowait((logging.ERROR, msg, args, kwargs))
 
     def warning(self, msg, *args, **kwargs):
-        self.append((logging.WARNING, msg, args, kwargs))
+        self.put_nowait((logging.WARNING, msg, args, kwargs))
 
     def info(self, msg, *args, **kwargs):
-        self.append((logging.INFO, msg, args, kwargs))
+        self.put_nowait((logging.INFO, msg, args, kwargs))
 
     def debug(self, msg, *args, **kwargs):
-        self.append((logging.DEBUG, msg, args, kwargs))
+        self.put_nowait((logging.DEBUG, msg, args, kwargs))
 
     def noset(self, msg, *args, **kwargs):
-        self.append((logging.NOSET, msg, args, kwargs))
+        self.put_nowait((logging.NOSET, msg, args, kwargs))
 
     async def new_server(self):
         while True:
             if self:
-                lvl, msg, args, kwargs = self.popleft()
+                lvl, msg, args, kwargs = \
+                    await self.loop.run_in_executor(None, self.get)
                 self.log(lvl, msg, *args, **kwargs)
-            await asyncio.sleep(0)
 
 
 def new_progress_server(callback):

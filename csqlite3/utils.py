@@ -7,6 +7,7 @@ import logging.config
 import pathlib
 import pickle
 import socket
+import socketserver
 import struct
 import sys
 
@@ -18,7 +19,7 @@ CONFIG = configparser.ConfigParser()
 CONFIG.read(BASE/"config.ini")
 HOST = CONFIG["address"]["host"]
 PORT = CONFIG["address"].getint("port")
-
+progress = {}
 
 logging.config.fileConfig(BASE/"config.ini")
 logger = logging.getLogger("Server")
@@ -133,3 +134,38 @@ class SafeLogger(collections.deque):
                 lvl, msg, args, kwargs = self.popleft()
                 self.log(lvl, msg, *args, **kwargs)
             await asyncio.sleep(0)
+
+
+def new_progress_server(callback):
+    class CallbackRequestHandler(socketserver.BaseRequestHandler):
+        def handle(self):
+            self.request.recv(1)
+            callback()
+    return socketserver.TCPServer(("localhost", 0), CallbackRequestHandler)
+
+
+def new_trace_server(trace_callback):
+    class CallbackRequestHandler(socketserver.BaseRequestHandler):
+        def handle(self):
+            header = self.request.recv(4)
+            if header:
+                data = self.request.recv(*struct.unpack("!i", header))
+            else:
+                data = self.request.recv(0)
+            trace_callback(pickle.loads(data))
+    return socketserver.TCPServer(("localhost", 0), CallbackRequestHandler)
+
+
+def conver_row(new_type, row):
+    for item in row:
+        if isinstance(item, str):
+            yield new_type(item)
+        else:
+            yield item
+
+
+def convert_str_to(new_type, iterable):
+    if isinstance(iterable, list):
+        return [tuple(conver_row(new_type, row)) for row in iterable]
+    else:
+        return tuple(conver_row(new_type, iterable))

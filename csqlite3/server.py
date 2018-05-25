@@ -1,6 +1,11 @@
 import asyncio
 import collections
+import functools
+import pickle
+import socket
 import sqlite3
+import struct
+import traceback
 
 from . import utils
 
@@ -8,18 +13,53 @@ from . import utils
 logger = utils.SafeLogger("Server")
 active_client_apps = {}
 
+SQLITE3_EXCEPTIONS = (sqlite3.Warning, sqlite3.DataError,
+                      sqlite3.DatabaseError, sqlite3.Error,
+                      sqlite3.IntegrityError, sqlite3.InterfaceError,
+                      sqlite3.InternalError, sqlite3.NotSupportedError,
+                      sqlite3.OperationalError, sqlite3.ProgrammingError)
+
+
+def dummy_function():
+    pass
+
 
 class ModuleDispatcher:
     def __init__(self, module):
         self.module = module
 
-    def __getitem__(self, item):
-        return getattr(self.module, item)
+    def __getitem__(self, method):
+        return getattr(self.module, method)
+
+
+def new_progress_handler(connection):
+    def handler(address, n):
+        def callable():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect(address)
+                sock.send(b"0")
+            return 0
+        connection.set_progress_handler(callable, n)
+    return handler
+
+
+def new_trace_server(connection):
+    def handler(address):
+        def callable(data):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect(address)
+                serialized = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
+                header = struct.pack("!i", len(serialized))
+                sock.sendall(header + serialized)
+            return 0
+        connection.set_trace_callback(callable)
+    return handler
 
 
 class ConnectionDispatcher:
     def __init__(self, host, port, pid):
         self.connection = None
+        self._iter_iterdump = None
 
         # sqlite3 module has some global variables, so I need
         # to create one sqlite3 instance per client app
@@ -27,17 +67,38 @@ class ConnectionDispatcher:
             self.sqlite3 = active_client_apps[pid]
         else:
             self.sqlite3 = active_client_apps[pid] = utils.require("sqlite3")
-            logger.debug("Client app was open.", extra={"host": host,
-                         "port": port, "pid": pid, "obj": "client_app",
-                         "method": "open", "kwargs": {}})
+            extra = {"host": host, "port": port, "pid": pid,
+                     "obj": "client_app", "method": "open", "arguments": {}}
+            logger.debug("Client app was open.", extra=extra)
 
-    def connector(self, **kwargs):
+    def _connector(self, **kwargs):
         self.connection = self.sqlite3.connect(**kwargs)
 
-    def __getitem__(self, item):
-        if item == "open":
-            return self.connector
-        return getattr(self.connection, item)
+    def __getitem__(self, method):
+        if method == "open":
+            return self._connector
+        if method == "_get_attribute":
+            return functools.partial(getattr, self.connection)
+        elif method == "_set_attribute":
+            return functools.partial(setattr, self.connection)
+        elif method == "set_progress_handler":
+            return new_progress_handler(self.connection)
+        elif method == "set_trace_callback":
+            return new_trace_server(self.connection)
+        elif method == "iterdump":
+            iterable = self.connection.iterdump()
+
+            def _next_iterdump():
+                try:
+                    return next(iterable)
+                except StopIteration:
+                    return StopIteration
+
+            self._next_iterdump = _next_iterdump
+            return dummy_function
+        elif method == "_next_iterdump":
+            return self._next_iterdump
+        return getattr(self.connection, method)
 
 
 class CursorDispatcher:
@@ -45,12 +106,14 @@ class CursorDispatcher:
         self.connection = connection.connection
         self.cursor = None
 
-    def connector(self, **kwargs):
+    def _connector(self, **kwargs):
         self.cursor = self.connection.cursor()
 
     def __getitem__(self, item):
         if item == "open":
-            return self.connector
+            return self._connector
+        elif item == "_get_attribute":
+            return functools.partial(getattr, self.cursor)
         return getattr(self.cursor, item)
 
 
@@ -67,7 +130,7 @@ class ObjectDispatcher(collections.defaultdict):
             return self["cursor"]
         elif key == "csqlite3":
             self["csqlite3"] = ModuleDispatcher(
-                active_client_apps[self.key[-1]])
+                active_client_apps[self.key[2]])
             return self["csqlite3"]
         else:
             raise KeyError
@@ -87,44 +150,55 @@ class Database(collections.defaultdict):
                     try:
                         status = await self.handle_request(
                             writer, client, host, port, *request)
-                    except Exception as error:
-                        pid, obj, method, kwargs = request
-                        status = utils.ServerError(error)
-                        logger.error(status, extra={"host": host, "port": port,
-                                     "pid": pid, "obj": obj, "method": method,
-                                     "kwargs": kwargs})
-                        await writer(client, status)
-                        raise
-
+                    except SQLITE3_EXCEPTIONS as error:
+                        pid, obj, method, arguments = request
+                        message = utils.ServerError(error)
+                        extra = {"host": host, "port": port, "pid": pid,
+                                 "obj": obj, "method": method,
+                                 "arguments": arguments}
+                        logger.error(message, extra=extra)
+                        await writer(client, message)
+                        # traceback.print_exc()
+                    except BaseException as error:
+                        pid, obj, method, arguments = request
+                        message = utils.ServerError(error)
+                        extra = {"host": host, "port": port, "pid": pid,
+                                 "obj": obj, "method": method,
+                                 "arguments": arguments}
+                        logger.error(message, extra=extra)
+                        await writer(client, message)
+                        traceback.print_exc()
+                        break
                 else:
                     status = await self.warn(writer, client, host, port)
 
     async def handle_request(self, writer, client, host, port, pid, obj,
-                             method, kwargs):
-        if (obj, method) == ("client_app", "close"):
+                             method, arguments):
+        if (obj == "close") and (method == "client_app"):
             del active_client_apps[pid]
-            logger.debug("Client app was closed.", extra={"host": host,
-                         "port": port, "pid": pid, "obj": obj,
-                         "method": method, "kwargs": kwargs})
+            extra = {"host": host, "port": port, "pid": pid, "obj": obj,
+                     "method": method, "arguments": arguments}
+            logger.debug("Client app was closed.", extra=extra)
             return StopIteration
-        if isinstance(kwargs, dict):
-            status = self[host, port, pid][obj][method](**kwargs)
+        if isinstance(arguments, dict):
+            message = self[host, port, pid][obj][method](**arguments)
         else:
-            status = self[host, port, pid][obj][method](*kwargs)
-        if isinstance(status, sqlite3.Cursor):
-            status = None
-        logger.debug(status, extra={"host": host, "port": port, "pid": pid,
-                     "obj": obj, "method": method, "kwargs": kwargs})
-        await writer(client, status)
-        if (obj, method) == ("connection", "close"):
+            message = self[host, port, pid][obj][method](*arguments)
+        if isinstance(message, sqlite3.Cursor):
+            message = None
+        logger.debug(message, extra={"host": host, "port": port, "pid": pid,
+                                     "obj": obj, "method": method,
+                                     "arguments": repr(arguments)})
+        await writer(client, message)
+        if (obj == "close") and (method == "connection"):
             return StopIteration
 
     async def warn(self, writer, client, host, port):
         warning = RuntimeWarning("Unexpected close connection")
-        status = utils.ServerWarning(warning)
-        logger.warning(status, extra={"host": host, "port": port, "obj": "",
-                       "method": "", "pid": "", "kwargs": {}})
-        await writer(client, status)
+        message = utils.ServerWarning(warning)
+        logger.warning(message, extra={"host": host, "port": port, "obj": "",
+                       "method": "", "pid": "", "arguments": {}})
+        await writer(client, message)
         return StopIteration
 
 
@@ -134,7 +208,7 @@ def main():
     database_server = utils.new_server(utils.HOST, utils.PORT, handler, loop)
     logging_server = logger.new_server()
     _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "",
-              "obj": "", "method": "", "kwargs": {}}
+              "obj": "", "method": "", "arguments": {}}
     logger.info("csqlite3.server has been started.", extra=_extra)
     try:
         tasks = asyncio.gather(database_server, logging_server)

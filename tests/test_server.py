@@ -23,7 +23,7 @@ class ServerLoggingSuite(unittest.TestCase):
         self.assertEqual(log.port, 8888)
         self.assertEqual(log.status, "csqlite3.server has been started.")
         self.assertEqual(log.pid, "")
-        self.assertEqual(log.kwargs, "{}")
+        self.assertEqual(log.kwargs, {})
 
     def test_close_server(self):
         with open(LOG_PATH, "r") as log_file:
@@ -35,7 +35,7 @@ class ServerLoggingSuite(unittest.TestCase):
         self.assertEqual(log.port, 8888)
         self.assertEqual(log.status, "csqlite3.server has been closed.")
         self.assertEqual(log.pid, "")
-        self.assertEqual(log.kwargs, "{}")
+        self.assertEqual(log.kwargs, {})
 
     def test_enable_callback_traceback(self):
         with open(LOG_PATH, "r") as log_file:

@@ -7,6 +7,7 @@ import sqlite3
 import struct
 import traceback
 
+
 from . import utils
 
 
@@ -202,15 +203,39 @@ class Database(collections.defaultdict):
         return StopIteration
 
 
+async def new_monitor():
+    import psutil
+    import pathlib
+    bench = pathlib.Path("bench")
+    with open(bench/"cpu_percent.csv", "w", newline="") as cpu_file, \
+         open(bench/"memory_usage.csv", "w", newline="") as memory_file:
+        while True:
+            cpu_writer = csv.writer(cpu_file)
+            memory_writer = csv.writer(memory_file)
+
+            cpu_percent = psutil.cpu_percent(interval=0.1, percpu=True)
+            memory_usage = [psutil.virtual_memory().used]
+
+            cpu_writer.writerow(cpu_percent)
+            memory_writer.writerow(memory_usage)
+
+            cpu_file.flush()
+            memory_file.flush()
+
+            await asyncio.sleep(0.2)
+
+
 def main():
     loop = asyncio.get_event_loop()
     handler = Database().handler
     database_server = utils.new_server(utils.HOST, utils.PORT, handler, loop)
     logging_server = logger.new_server()
+    # monitor = new_monitor()
     _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "",
               "obj": "", "method": "", "arguments": {}}
     logger.info("csqlite3.server has been started.", extra=_extra)
     try:
+        # tasks = asyncio.gather(database_server, logging_server, monitor)
         tasks = asyncio.gather(database_server, logging_server)
         loop.run_until_complete(tasks)
     except KeyboardInterrupt:

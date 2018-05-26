@@ -77,7 +77,7 @@ class ServerMethods:
         self.process = None
 
     def start_server(self):
-        """Run the aiohttp server."""
+        """Run the csqlite3 server."""
         args = [sys.executable, "-m", "csqlite3.server"]
         if self.argument.output:
             self.process = subprocess.Popen(args, start_new_session=True)
@@ -94,10 +94,10 @@ class ServerMethods:
                 break
             else:
                 self.close_server()
-                raise TimeoutError("aiohttp server never started.")
+                raise TimeoutError("csqlite3 server never started.")
 
     def close_server(self):
-        """Shut down aiohttp server."""
+        """Shut down csqlite3 server."""
         if platform.system() == "Windows":
             self.process.send_signal(signal.CTRL_C_EVENT)
         else:
@@ -112,7 +112,7 @@ class ServerMethods:
                     ConnectionResetError, KeyboardInterrupt):
                 break
         else:
-            raise TimeoutError("aiohttp server never closed.")
+            raise TimeoutError("csqlite3 server never closed.")
 
 
 class Runner(ServerMethods):

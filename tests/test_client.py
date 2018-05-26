@@ -285,7 +285,8 @@ class ConnectionSuite(unittest.TestCase):
         self.assertGreaterEqual(self.connection.total_changes, 10)
 
     def test_iterdump(self):
-        con = csqlite3.connect(pathlib.Path("tests")/"iterdump_example.db")
+        path = str(pathlib.Path("tests")/"iterdump_example.db")
+        con = csqlite3.connect(path)
         obtained = list(con.iterdump())
         con.close()
         expected = ['BEGIN TRANSACTION;',

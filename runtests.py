@@ -90,6 +90,7 @@ class ServerMethods:
                 try:
                     test_socket.connect((utils.HOST, utils.PORT))
                 except (ConnectionAbortedError, ConnectionRefusedError):
+                    time.sleep(0.01)
                     continue
                 break
             else:
@@ -99,7 +100,7 @@ class ServerMethods:
     def close_server(self):
         """Shut down csqlite3 server."""
         if platform.system() == "Windows":
-            self.process.send_signal(signal.CTRL_C_EVENT)
+            self.process.send_signal(signal.CTRL_BREAK_EVENT)
         else:
             self.process.send_signal(signal.SIGINT)
         start = time.perf_counter()
@@ -107,6 +108,7 @@ class ServerMethods:
             try:
                 with socket.socket() as test_socket:
                     test_socket.connect((utils.HOST, utils.PORT))
+                    time.sleep(0.01)
                     continue
             except (ConnectionAbortedError, ConnectionRefusedError,
                     ConnectionResetError, KeyboardInterrupt):

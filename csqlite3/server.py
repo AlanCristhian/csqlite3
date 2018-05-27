@@ -198,6 +198,8 @@ class Database(collections.defaultdict):
 async def new_monitor():
     import psutil
     import pathlib
+    import csv
+
     bench = pathlib.Path("bench")
     with open(bench/"cpu_percent.csv", "w", newline="") as cpu_file, \
          open(bench/"memory_usage.csv", "w", newline="") as memory_file:

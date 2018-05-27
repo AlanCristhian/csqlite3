@@ -21,46 +21,18 @@ SQLITE3_EXCEPTIONS = (sqlite3.Warning, sqlite3.DataError,
                       sqlite3.OperationalError, sqlite3.ProgrammingError)
 
 
-def dummy_function():
-    pass
-
-
-class ModuleDispatcher:
+class ModuleDispatcher(dict):
     def __init__(self, module):
-        self.module = module
-
-    def __getitem__(self, method):
-        return getattr(self.module, method)
-
-
-def new_progress_handler(connection):
-    def handler(address, n):
-        def callable():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect(address)
-                sock.send(b"0")
-            return 0
-        connection.set_progress_handler(callable, n)
-    return handler
+        super().__init__({
+            "register_converter": module.register_converter,
+            "register_adapter": module.register_adapter,
+            "enable_callback_tracebacks": module.enable_callback_tracebacks,
+        })
 
 
-def new_trace_server(connection):
-    def handler(address):
-        def callable(data):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect(address)
-                serialized = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
-                header = struct.pack("!i", len(serialized))
-                sock.sendall(header + serialized)
-            return 0
-        connection.set_trace_callback(callable)
-    return handler
-
-
-class ConnectionDispatcher:
+class ConnectionDispatcher(dict):
     def __init__(self, host, port, pid):
         self.connection = None
-        self._iter_iterdump = None
 
         # sqlite3 module has some global variables, so I need
         # to create one sqlite3 instance per client app
@@ -71,35 +43,58 @@ class ConnectionDispatcher:
             extra = {"host": host, "port": port, "pid": pid,
                      "obj": "client_app", "method": "open", "arguments": {}}
             logger.debug("Client app was open.", extra=extra)
+        self["open"] = self.connector
 
-    def _connector(self, **kwargs):
+    def iterdump(self):
+        iterable = self.connection.iterdump()
+        def _next_iterdump():
+            try:
+                return next(iterable)
+            except StopIteration:
+                return StopIteration
+        self["_next_iterdump"] = _next_iterdump
+        return None
+
+    def connector(self, **kwargs):
         self.connection = self.sqlite3.connect(**kwargs)
+        self.update({
+            "_get_attribute": functools.partial(getattr, self.connection),
+            "_set_attribute": functools.partial(setattr, self.connection),
+            "set_progress_handler": self.new_progress_handler(),
+            "set_trace_callback": self.new_trace_server(),
+            "iterdump": self.iterdump,
+            "commit": self.connection.commit,
+            "create_aggregate": self.connection.create_aggregate,
+            "create_collation": self.connection.create_collation,
+            "create_function": self.connection.create_function,
+            "enable_load_extension": self.connection.enable_load_extension,
+            "interrupt": self.connection.interrupt,
+            "close": self.connection.close,
+            "rollback": self.connection.rollback,
+            "set_authorizer": self.connection.set_authorizer,
+        })
 
-    def __getitem__(self, method):
-        if method == "open":
-            return self._connector
-        if method == "_get_attribute":
-            return functools.partial(getattr, self.connection)
-        elif method == "_set_attribute":
-            return functools.partial(setattr, self.connection)
-        elif method == "set_progress_handler":
-            return new_progress_handler(self.connection)
-        elif method == "set_trace_callback":
-            return new_trace_server(self.connection)
-        elif method == "iterdump":
-            iterable = self.connection.iterdump()
+    def new_progress_handler(self):
+        def handler(address, n):
+            def callable():
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.connect(address)
+                    sock.send(b"0")
+                return 0
+            self.connection.set_progress_handler(callable, n)
+        return handler
 
-            def _next_iterdump():
-                try:
-                    return next(iterable)
-                except StopIteration:
-                    return StopIteration
-
-            self._next_iterdump = _next_iterdump
-            return dummy_function
-        elif method == "_next_iterdump":
-            return self._next_iterdump
-        return getattr(self.connection, method)
+    def new_trace_server(self):
+        def handler(address):
+            def callable(data):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.connect(address)
+                    serialized = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
+                    header = struct.pack("!i", len(serialized))
+                    sock.sendall(header + serialized)
+                return 0
+            self.connection.set_trace_callback(callable)
+        return handler
 
 
 class CursorDispatcher:
@@ -107,12 +102,12 @@ class CursorDispatcher:
         self.connection = connection.connection
         self.cursor = None
 
-    def _connector(self, **kwargs):
+    def connector(self, **kwargs):
         self.cursor = self.connection.cursor()
 
     def __getitem__(self, item):
         if item == "open":
-            return self._connector
+            return self.connector
         elif item == "_get_attribute":
             return functools.partial(getattr, self.cursor)
         return getattr(self.cursor, item)
@@ -152,26 +147,23 @@ class Database(collections.defaultdict):
                         status = await self.handle_request(
                             writer, client, host, port, *request)
                     except SQLITE3_EXCEPTIONS as error:
-                        pid, obj, method, arguments = request
-                        message = utils.ServerError(error)
-                        extra = {"host": host, "port": port, "pid": pid,
-                                 "obj": obj, "method": method,
-                                 "arguments": arguments}
-                        logger.error(message, extra=extra)
-                        await writer(client, message)
-                        # traceback.print_exc()
+                        await self.handle_exception(
+                            error, writer, client, host, port, *request)
                     except BaseException as error:
-                        pid, obj, method, arguments = request
-                        message = utils.ServerError(error)
-                        extra = {"host": host, "port": port, "pid": pid,
-                                 "obj": obj, "method": method,
-                                 "arguments": arguments}
-                        logger.error(message, extra=extra)
-                        await writer(client, message)
                         traceback.print_exc()
-                        break
+                        await self.handle_exception(
+                            error, writer, client, host, port, *request)
+                        status = StopIteration
                 else:
                     status = await self.warn(writer, client, host, port)
+
+    async def handle_exception(self, error, writer, client, host, port, pid,
+                               obj, method, arguments):
+        message = utils.ServerError(error)
+        extra = {"host": host, "port": port, "pid": pid, "obj": obj,
+                 "method": method, "arguments": arguments}
+        logger.error(message, extra=extra)
+        await writer(client, message)
 
     async def handle_request(self, writer, client, host, port, pid, obj,
                              method, arguments):

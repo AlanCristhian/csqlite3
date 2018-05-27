@@ -298,6 +298,7 @@ class ConnectionSuite(unittest.TestCase):
                     'COMMIT;']
         self.assertEqual(obtained, expected)
 
+
 class CursorSuite(unittest.TestCase):
     @classmethod
     def setUpClass(self):

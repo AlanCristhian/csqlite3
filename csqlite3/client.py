@@ -4,6 +4,7 @@ import os
 import socket
 import threading
 import warnings
+import pathlib
 
 from . import utils
 
@@ -25,11 +26,12 @@ class _ConnectionSocket(utils.PickleSocket):
 
 class Cursor:
     """SQLite database cursor class."""
-    def __init__(self, socket, row_factory, text_factory):
+    def __init__(self, database, socket, row_factory, text_factory):
         self._socket = socket
         self._request = self._socket.request
         self._row_factory = row_factory
         self._text_factory = text_factory
+        self._database = database
         self._request(_PID, "cursor", "open", {})
 
     def execute(self, sql, parameters=()):
@@ -96,6 +98,10 @@ class Connection:
         self._trace = None
         self._row_factory = None
         self._text_factory = None
+        if ":memory:" in database:
+            self._database = database
+        else:
+            self._database = str(pathlib.Path(database).resolve())
         kwargs = {"database": database,
                   "timeout": timeout,
                   "detect_types": detect_types,
@@ -114,8 +120,8 @@ class Connection:
     def cursor(self, factory=Cursor):
         """Return a cursor for the connection."""
         if not self._cursor:
-            self._cursor = factory(self._socket, self._row_factory,
-                                   self._text_factory)
+            self._cursor = factory(self._database, self._socket,
+                                   self._row_factory, self._text_factory)
         return self._cursor
 
     def commit(self):
@@ -224,8 +230,6 @@ class Connection:
         self._request(_PID, "connection", "_set_attribute",
                       ["text_factory", factory])
         self._text_factory = factory
-        # if self._cursor:
-        #     self._cursor._text_factory = factory
 
     @property
     def total_changes(self):

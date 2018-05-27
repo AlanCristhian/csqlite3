@@ -110,6 +110,8 @@ class CursorDispatcher:
             return self.connector
         elif item == "_get_attribute":
             return functools.partial(getattr, self.cursor)
+        elif item == "_set_attribute":
+            return functools.partial(setattr, self.cursor)
         return getattr(self.cursor, item)
 
 

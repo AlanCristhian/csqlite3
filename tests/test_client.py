@@ -314,17 +314,43 @@ class CursorSuite(unittest.TestCase):
         self.assertIsInstance(self.cursor, csqlite3.Cursor)
 
     def test_execute_and_fetchone(self):
-        self.cursor.execute("CREATE TABLE cursor (p INT)")
-        self.cursor.execute("INSERT INTO cursor (p) VALUES (1)")
-        self.cursor.execute("SELECT p FROM cursor WHERE p=1")
+        self.cursor.execute("CREATE TABLE cursor_1 (p INT)")
+        self.cursor.execute("INSERT INTO cursor_1 (p) VALUES (1)")
+        self.cursor.execute("SELECT p FROM cursor_1 WHERE p=1")
         obtained = self.cursor.fetchone()[0]
         self.assertEqual(obtained, 1)
 
     def test_fetchall(self):
-        self.cursor.execute("INSERT INTO cursor (p) VALUES (2)")
-        self.cursor.execute("SELECT p FROM cursor WHERE p=2")
+        self.cursor.execute("CREATE TABLE cursor_2 (p INT)")
+        self.cursor.execute("INSERT INTO cursor_2 (p) VALUES (2)")
+        self.cursor.execute("SELECT p FROM cursor_2 WHERE p=2")
         obtained = self.cursor.fetchall()
         self.assertEqual(obtained, [(2,)])
+
+    def test_fetchmany(self):
+        self.cursor.execute("CREATE TABLE cursor_3 (p INT)") \
+                   .executemany("INSERT INTO cursor_3 (p) VALUES (?)",
+                                [[1], [2], [3]]) \
+                   .execute("SELECT p FROM cursor_3")
+        obtained = self.cursor.fetchmany(3)
+        expected = [(1,), (2,), (3,)]
+        self.assertEqual(obtained, expected)
+
+    def test_rowcount(self):
+        self.cursor.execute("CREATE TABLE cursor_4 (p INT)") \
+                   .executemany("INSERT INTO cursor_4 (p) VALUES (?)",
+                                [[1], [2], [3]])
+        self.assertEqual(self.cursor.rowcount, 3)
+
+    def test_lastrowid(self):
+        self.cursor.execute("CREATE TABLE cursor_5(p INT)") \
+                   .execute("INSERT INTO cursor_5 (p) VALUES (1)")
+        self.assertEqual(self.cursor.lastrowid, 1)
+
+    def test_arraysize(self):
+        self.assertEqual(self.cursor.arraysize, 1)
+        self.cursor.arraysize = 2
+        self.assertEqual(self.cursor.arraysize, 2)
 
 
 if __name__ == '__main__':

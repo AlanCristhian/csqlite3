@@ -55,9 +55,32 @@ class Cursor:
                     data[i] = self._row_factory(self, row)
         return data
 
+    def fetchmany(self, size=None):
+      """Repeatedly executes a SQL statement."""
+      if size is None:
+          size = self.arraysize
+      return self._request(_PID, "cursor", "fetchmany", [size])
+
     def close(self):
         """Closes the cursor."""
         return self._request(_PID, "cursor", "close", {})
+
+    @property
+    def rowcount(self):
+        return self._request(_PID, "cursor", "_get_attribute", ["rowcount"])
+
+    @property
+    def lastrowid(self):
+        return self._request(_PID, "cursor", "_get_attribute", ["lastrowid"])
+
+    @property
+    def arraysize(self):
+        return self._request(_PID, "cursor", "_get_attribute", ["arraysize"])
+
+    @arraysize.setter
+    def arraysize(self, size):
+        return self._request(_PID, "cursor", "_set_attribute",
+                             ["arraysize", size])
 
     def __iter__(self):
         """Implement iter(self)."""

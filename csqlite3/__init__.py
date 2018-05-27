@@ -13,7 +13,7 @@ from sqlite3 import (sqlite_version, sqlite_version_info, complete_statement,
                      SQLITE_DROP_TRIGGER, SQLITE_DROP_VIEW, SQLITE_IGNORE,
                      SQLITE_INSERT, SQLITE_OK, SQLITE_PRAGMA, SQLITE_READ,
                      SQLITE_REINDEX, SQLITE_SELECT, SQLITE_TRANSACTION,
-                     SQLITE_UPDATE)
+                     SQLITE_UPDATE, Row)
 
 from .client import (connect, Connection, register_adapter, register_converter,
                      Cursor, enable_callback_tracebacks)

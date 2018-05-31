@@ -236,6 +236,8 @@ def main():
         loop.run_until_complete(tasks)
     except KeyboardInterrupt:
         logger.info_now("csqlite3.server has been closed.", extra=_extra)
+        database_server.close()
+        logging_server.close()
         loop.stop()
     finally:
         loop.close()

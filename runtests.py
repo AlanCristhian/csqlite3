@@ -100,7 +100,7 @@ class ServerMethods:
     def close_server(self):
         """Shut down csqlite3 server."""
         if platform.system() == "Windows":
-            self.process.send_signal(signal.CTRL_BREAK_EVENT)
+            self.process.send_signal(signal.CTRL_C_EVENT)
         else:
             self.process.send_signal(signal.SIGINT)
         start = time.perf_counter()

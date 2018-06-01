@@ -36,7 +36,7 @@ __all__ = ["version", "version_info", "sqlite_version", "sqlite_version_info",
            "SQLITE_DROP_TRIGGER", "SQLITE_DROP_VIEW", "SQLITE_IGNORE",
            "SQLITE_INSERT", "SQLITE_OK", "SQLITE_PRAGMA", "SQLITE_READ",
            "SQLITE_REINDEX", "SQLITE_SELECT", "SQLITE_TRANSACTION",
-           "SQLITE_UPDATE"]
+           "SQLITE_UPDATE", "Row"]
 
 
 # Constants

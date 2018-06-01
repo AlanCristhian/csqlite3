@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import collections
 import functools
@@ -5,10 +6,14 @@ import pickle
 import socket
 import sqlite3
 import struct
+import sys
 import traceback
 
 
-from . import utils
+try:
+    import utils
+except ImportError:
+    from . import utils
 
 
 logger = utils.SafeLogger("Server")
@@ -47,11 +52,13 @@ class ConnectionDispatcher(dict):
 
     def iterdump(self):
         iterable = self.connection.iterdump()
+
         def _next_iterdump():
             try:
                 return next(iterable)
             except StopIteration:
                 return StopIteration
+
         self["_next_iterdump"] = _next_iterdump
         return None
 
@@ -204,7 +211,7 @@ async def new_monitor():
 
     bench = pathlib.Path("bench")
     with open(bench/"cpu_percent.csv", "w", newline="") as cpu_file, \
-         open(bench/"memory_usage.csv", "w", newline="") as memory_file:
+            open(bench/"memory_usage.csv", "w", newline="") as memory_file:
         while True:
             cpu_writer = csv.writer(cpu_file)
             memory_writer = csv.writer(memory_file)
@@ -221,27 +228,39 @@ async def new_monitor():
             await asyncio.sleep(0.2)
 
 
-def main():
+def main(argument):
     loop = asyncio.get_event_loop()
     handler = Database().handler
     database_server = utils.new_server(utils.HOST, utils.PORT, handler, loop)
     logging_server = logger.new_server()
-    # monitor = new_monitor()
-    _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "",
-              "obj": "", "method": "", "arguments": {}}
+    if argument.profilers:
+        monitor = new_monitor()
+    _extra = {"host": utils.HOST, "port": utils.PORT, "pid": "", "obj": "",
+              "method": "", "arguments": {}}
     logger.info("csqlite3.server has been started.", extra=_extra)
     try:
-        # tasks = asyncio.gather(database_server, logging_server, monitor)
-        tasks = asyncio.gather(database_server, logging_server)
+        if argument.profilers:
+            from os.path import dirname
+            sys.path.append(dirname(__file__))
+            tasks = asyncio.gather(database_server, logging_server, monitor)
+        else:
+            tasks = asyncio.gather(database_server, logging_server)
         loop.run_until_complete(tasks)
     except KeyboardInterrupt:
         logger.info_now("csqlite3.server has been closed.", extra=_extra)
         database_server.close()
         logging_server.close()
+        if argument.profilers:
+            monitor.close()
+        tasks.cancel()
         loop.stop()
     finally:
         loop.close()
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--profilers", action="store_true",
+                        help="Run profilers")
+    argument = parser.parse_args()
+    main(argument)

@@ -14,17 +14,15 @@ import queue
 
 
 BASE = pathlib.Path(__file__).parent
-
-
 CONFIG = configparser.ConfigParser()
 CONFIG.read(BASE/"config.ini")
 HOST = CONFIG["address"]["host"]
 PORT = CONFIG["address"].getint("port")
-progress = {}
 
+
+progress = {}
 logging.config.fileConfig(BASE/"config.ini")
 logger = logging.getLogger("Server")
-
 
 Log = collections.namedtuple("Log", ["asctime", "levelname", "host", "port",
                              "status", "pid", "obj", "method", "kwargs"])
@@ -32,25 +30,6 @@ Log = collections.namedtuple("Log", ["asctime", "levelname", "host", "port",
 
 def as_log(line):
     return eval("Log(%s)" % line)
-
-
-class PickleSocket(socket.socket):
-    def write(self, message):
-        data = pickle.dumps(message, pickle.HIGHEST_PROTOCOL)
-        size = len(data)
-        header = struct.pack("!i", size)
-        self.sendall(header + data)
-
-    def read(self):
-        header = self.recv(4)
-        if header:
-            size = struct.unpack("!i", header)[0]
-            return pickle.loads(self.recv(size))
-        else:
-            return pickle.loads(self.recv(0))
-
-    def close(self):
-        super().close()
 
 
 async def new_server(host, port, handler, loop):

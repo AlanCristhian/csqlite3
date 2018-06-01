@@ -78,7 +78,12 @@ class ServerMethods:
 
     def start_server(self):
         """Run the csqlite3 server."""
-        args = [sys.executable, "-m", "csqlite3.server"]
+        if argument.profilers:
+            server_path = str(utils.BASE/"server.py")
+            args = [sys.executable, "-m", "cProfile", "-o", "profile.txt",
+                    server_path, "-p"]
+        else:
+            args = [sys.executable, "-m", "csqlite3.server"]
         if self.argument.output:
             self.process = subprocess.Popen(args, start_new_session=True)
         else:
@@ -194,5 +199,7 @@ if __name__ == "__main__":
                         help="Start the csqlite3 server")
     parser.add_argument("-o", "--output", action="store_true",
                         help="Show server output")
+    parser.add_argument("-p", "--profilers", action="store_true",
+                        help="Run profilers")
     argument = parser.parse_args()
     Runner(argument)

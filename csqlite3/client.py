@@ -1,19 +1,48 @@
 import atexit
+import pickle
+import struct
 import logging
 import os
 import socket
 import threading
 import warnings
 import pathlib
+import sys
 
-from . import utils
+# Fix cProfile running
+from os.path import dirname
+sys.path.append(dirname(__file__))
+
+try:
+    import utils
+except ImportError:
+    from . import utils
 
 
 _logger = logging.getLogger("Client")
 _PID = os.getpid()
 
 
-class _ConnectionSocket(utils.PickleSocket):
+class _PickleSocket(socket.socket):
+    def write(self, message):
+        data = pickle.dumps(message, pickle.HIGHEST_PROTOCOL)
+        size = len(data)
+        header = struct.pack("!i", size)
+        self.sendall(header + data)
+
+    def read(self):
+        header = self.recv(4)
+        if header:
+            size = struct.unpack("!i", header)[0]
+            return pickle.loads(self.recv(size))
+        else:
+            return pickle.loads(self.recv(0))
+
+    def close(self):
+        super().close()
+
+
+class _ConnectionSocket(_PickleSocket):
     def request(self, *message):
         self.write(message)
         response = self.read()
@@ -56,10 +85,10 @@ class Cursor:
         return data
 
     def fetchmany(self, size=None):
-      """Repeatedly executes a SQL statement."""
-      if size is None:
-          size = self.arraysize
-      return self._request(_PID, "cursor", "fetchmany", [size])
+        """Repeatedly executes a SQL statement."""
+        if size is None:
+            size = self.arraysize
+        return self._request(_PID, "cursor", "fetchmany", [size])
 
     def close(self):
         """Closes the cursor."""
